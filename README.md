@@ -1,8 +1,13 @@
 ## Code structure
-- `src/data.py` — PCam loading, augmentation, datasets, DataLoaders
-- `src/models.py` — SimCLR, MAE architectures and downstream classifiers
-- `src/training.py` — SSL pre-training, fine-tuning, experiment orchestration
-- `src/evaluation.py` — Metrics, result tables, t-SNE, Grad-CAM
+- `code/data.py` — PCam loading, augmentation, datasets, DataLoaders
+- `code/models.py` — SimCLR, MAE architectures and downstream classifiers
+- `code/training.py` — SSL pre-training, fine-tuning, experiment orchestration
+- `code/evaluation.py` — Metrics, result tables, t-SNE, Grad-CAM
+
+## Key path
+- `checkpoint` store all the trained models
+- `result` store all the experiment results
+
 
 ## How to run
 1. `01_pretrain_ssl.ipynb` — train the 3 SSL encoders and save checkpoints
