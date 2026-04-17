@@ -34,6 +34,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
+# ── Global config (moved here to avoid default-arg NameError) ───────────────
+@dataclass
+class TrainConfig:
+    epochs: int = 15
+    encoder_lr: float = 1e-4
+    head_lr: float = 1e-3
+    weight_decay: float = 1e-4
+    patience: int = 3
+
+DEFAULT_EXPERIMENT_CONFIG = TrainConfig()
+MAIN_METHODS = ["supervised_from_scratch", "simclr", "mae", "mae_improved"]
+FINETUNE_STRATEGIES = ["frozen", "partial", "full"]
+
 from data import (
     DataBundle,
     LABEL_FRACTIONS,
@@ -345,15 +358,6 @@ def train_mae_improved(
 # ---------------------------------------------------------------------------
 # Phase 2: downstream classifier training
 # ---------------------------------------------------------------------------
-@dataclass
-class TrainConfig:
-    epochs: int = 15
-    encoder_lr: float = 1e-4
-    head_lr: float = 1e-3
-    weight_decay: float = 1e-4
-    patience: int = 3
-
-
 def train_classifier(
     model: nn.Module,
     train_loader: DataLoader,
@@ -446,9 +450,11 @@ def run_single_experiment(
     mae_checkpoint: Optional[Path] = None,
     mae_improved_checkpoint: Optional[Path] = None,
     seed: int = SEED,
-    config: TrainConfig = DEFAULT_EXPERIMENT_CONFIG,
+    config: Optional[TrainConfig] = None,
 ) -> Dict:
     """Run one (method, strategy, label_name) combination end-to-end."""
+    if config is None:
+        config = DEFAULT_EXPERIMENT_CONFIG
     set_seed(seed)
 
     if method == "supervised_from_scratch":
@@ -505,12 +511,14 @@ def run_experiment_grid(
     simclr_checkpoint: Optional[Path] = None,
     mae_checkpoint: Optional[Path] = None,
     mae_improved_checkpoint: Optional[Path] = None,
-    config: TrainConfig = DEFAULT_EXPERIMENT_CONFIG,
+    config: Optional[TrainConfig] = None,
 ) -> pd.DataFrame:
     """Iterate over a (method, strategy, label, seed) grid and collect metrics.
 
     Returns a tidy DataFrame where each row is one experiment.
     """
+    if config is None:
+        config = DEFAULT_EXPERIMENT_CONFIG
     records = []
     for seed in seeds:
         for method in methods:
