@@ -34,7 +34,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from .data import (
+from data import (
     DataBundle,
     LABEL_FRACTIONS,
     SSLImageDataset,
@@ -42,8 +42,8 @@ from .data import (
     SimCLRTransform,
     make_mae_transform,
 )
-from .evaluation import evaluate_model
-from .models import (
+from evaluation import evaluate_model
+from models import (
     MAEViT,
     MAEViTImproved,
     SimCLRModel,
