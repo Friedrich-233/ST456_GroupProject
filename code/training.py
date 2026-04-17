@@ -435,21 +435,6 @@ def train_classifier(
     return model, history, best_epoch, best_val_auc
 
 
-# ---------------------------------------------------------------------------
-# Experiment orchestration
-# ---------------------------------------------------------------------------
-DEFAULT_EXPERIMENT_CONFIG = TrainConfig(
-    epochs=15,
-    encoder_lr=1e-4,
-    head_lr=1e-3,
-    weight_decay=1e-4,
-    patience=3,
-)
-
-MAIN_METHODS = ["supervised_from_scratch", "simclr", "mae", "mae_improved"]
-FINETUNE_STRATEGIES = ["frozen", "partial", "full"]
-
-
 def run_single_experiment(
     method: str,
     strategy: str,
