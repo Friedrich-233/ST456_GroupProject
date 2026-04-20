@@ -189,9 +189,11 @@ def get_cosine_schedule_with_warmup(
 def train_simclr(
     data: DataBundle,
     checkpoint_dir: Path,
-    epochs: int = 10,
+    epochs: int = 20,                    # 10 to 20
     batch_size: int = 128,
     learning_rate: float = 3e-4,
+    warmup_epochs: int = 2,              # warmup feature
+    weight_decay: float = 0.05,          # decay feature
     tailored: bool = True,
     checkpoint_name: str = "simclr_encoder_tailored.pth",
     num_workers: int = 2,
@@ -210,9 +212,15 @@ def train_simclr(
     dataset = SSLPairDataset(data.x_pretrain, transform=transform)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
                         drop_last=True, num_workers=num_workers)
-
+    
+    # New training method and feature
     model = SimCLRModel().to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate,
+                                  weight_decay=weight_decay)
+    
+    total_steps = epochs * len(loader) 
+    warmup_steps = warmup_epochs * len(loader)
+    scheduler = get_cosine_schedule_with_warmup(optimizer, warmup_steps, total_steps) 
 
     history = []
     model.train()
@@ -227,12 +235,16 @@ def train_simclr(
 
             optimizer.zero_grad()
             loss.backward()
+            scheduler.step()        
             optimizer.step()
             total_loss += loss.item()
 
         avg_loss = total_loss / len(loader)
-        history.append({"epoch": epoch + 1, "loss": avg_loss})
-        print(f"SimCLR epoch {epoch + 1}/{epochs} - loss: {avg_loss:.4f}")
+        current_lr = optimizer.param_groups[0]["lr"]
+        history.append({"epoch": epoch + 1, "loss": avg_loss,
+                        "lr": current_lr})  
+        print(f"SimCLR epoch {epoch + 1}/{epochs} - loss: {avg_loss:.4f} "
+              f"- lr: {current_lr:.6f}") 
 
     checkpoint_dir = Path(checkpoint_dir)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -244,9 +256,11 @@ def train_simclr(
 def train_mae(
     data: DataBundle,
     checkpoint_dir: Path,
-    epochs: int = 10,
+    epochs: int = 20,                    #  10 to 20
     batch_size: int = 128,
-    learning_rate: float = 1e-3,
+    learning_rate: float = 1.5e-4,       # ← 1e-3 to 1.5e-4
+    warmup_epochs: int = 2,              # new feature
+    weight_decay: float = 0.05,          # new feature
     checkpoint_name: str = "mae_encoder.pth",
     num_workers: int = 2,
     seed: int = SEED,
@@ -258,7 +272,13 @@ def train_mae(
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
 
     model = MAEViT().to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.05)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate,
+                                  weight_decay=weight_decay)           # for weight_decay
+
+    total_steps = epochs * len(loader)                                  
+    warmup_steps = warmup_epochs * len(loader)                          
+    scheduler = get_cosine_schedule_with_warmup(optimizer,              
+                                                warmup_steps, total_steps)
 
     history = []
     model.train()
@@ -276,11 +296,15 @@ def train_mae(
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            scheduler.step()                                           # ← 新加
             total_loss += loss.item()
 
         avg_loss = total_loss / len(loader)
-        history.append({"epoch": epoch + 1, "loss": avg_loss})
-        print(f"MAE epoch {epoch + 1}/{epochs} - loss: {avg_loss:.4f}")
+        current_lr = optimizer.param_groups[0]["lr"]                   # ← 新加
+        history.append({"epoch": epoch + 1, "loss": avg_loss,
+                        "lr": current_lr})                             # ← 带 lr
+        print(f"MAE epoch {epoch + 1}/{epochs} - loss: {avg_loss:.4f} "
+              f"- lr: {current_lr:.6f}")  
 
     checkpoint_dir = Path(checkpoint_dir)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
