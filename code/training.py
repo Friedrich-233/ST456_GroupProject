@@ -45,7 +45,7 @@ class TrainConfig:
 
 DEFAULT_EXPERIMENT_CONFIG = TrainConfig()
 MAIN_METHODS = ["supervised_from_scratch", "simclr", "mae"]
-FINETUNE_STRATEGIES = ["frozen", "partial", "full"]
+FINETUNE_STRATEGIES = ["frozen", "partial", "full", "peft"]
 
 from data import (
     DataBundle,
@@ -65,6 +65,8 @@ from models import (
     build_simclr_classifier,
     build_supervised_scratch_classifier,
     configure_trainable_parameters,
+    LoRAResNetClassifier,           # ← 新加
+    VPTMAEClassifier,               # ← 新加
 )
 
 
@@ -473,6 +475,8 @@ def run_single_experiment(
     simclr_checkpoint: Optional[Path] = None,
     mae_checkpoint: Optional[Path] = None,
     mae_improved_checkpoint: Optional[Path] = None,
+    peft_rank: int = 8,                
+    peft_num_prompts: int = 10,         
     seed: int = SEED,
     config: Optional[TrainConfig] = None,
 ) -> Dict:
@@ -497,6 +501,21 @@ def run_single_experiment(
         model = build_mae_improved_classifier(mae_improved_checkpoint)
     else:
         raise ValueError(f"Unknown method: {method}")
+    
+    if strategy == "peft":
+        if method == "simclr":
+            model = LoRAResNetClassifier(
+                model.encoder, feature_dim=512, rank=peft_rank,
+            )
+        elif method in {"mae", "mae_improved"}:
+            model = VPTMAEClassifier(
+                model.encoder, num_prompts=peft_num_prompts, embed_dim=192,
+            )
+        else:
+            raise ValueError(
+                f"PEFT strategy not supported for method '{method}'. "
+                "Use 'simclr', 'mae', or 'mae_improved'."
+            )
 
     model, history, best_epoch, best_val_auc = train_classifier(
         model=model,
@@ -547,6 +566,8 @@ def run_experiment_grid(
     for seed in seeds:
         for method in methods:
             for strategy in strategies:
+                if strategy == "peft" and method == "supervised_from_scratch":
+                    continue
                 for label_name in label_names:
                     print(f"Running {method} | {strategy} | {label_name} | seed={seed}")
                     result = run_single_experiment(

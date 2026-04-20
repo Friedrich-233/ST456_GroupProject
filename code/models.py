@@ -322,15 +322,11 @@ class MAEBinaryClassifier(nn.Module):
 # Fine-tuning strategy configuration
 # ---------------------------------------------------------------------------
 def configure_trainable_parameters(model: nn.Module, strategy: str) -> None:
-    """Freeze or unfreeze parameters in-place according to the chosen strategy.
-
-    strategy == 'frozen' : encoder is fully frozen, only fc is trained.
-    strategy == 'partial': encoder last stage / last 2 transformer blocks are
-                           also unfrozen.
-    strategy == 'full'   : everything is trained.
-    """
-    if strategy not in {"frozen", "partial", "full"}:
+    if strategy not in {"frozen", "partial", "full", "peft"}:           
         raise ValueError(f"Unknown strategy: {strategy}")
+
+    if strategy == "peft":                                                
+        return                                                           
 
     for param in model.parameters():
         param.requires_grad = False
@@ -398,3 +394,97 @@ def build_mae_improved_classifier(checkpoint_path: Path) -> MAEBinaryClassifier:
     state = torch.load(checkpoint_path, map_location="cpu")
     encoder.load_state_dict(state)
     return MAEBinaryClassifier(encoder=encoder, feature_dim=192)
+
+# ---------------------------------------------------------------------------
+# PEFT (Parameter-Efficient Fine-Tuning): LoRA and VPT
+# ---------------------------------------------------------------------------
+import math
+
+
+class LoRALayer(nn.Module):
+    """Low-Rank Adaptation bypass: y = x @ A @ B.
+
+    A is initialised with Kaiming-uniform and B with zeros — so at
+    initialisation the bypass contributes nothing, preserving the frozen
+    encoder's output on the first forward pass.
+    """
+
+    def __init__(self, in_features: int, out_features: int, rank: int = 8):
+        super().__init__()
+        self.rank = rank
+        self.lora_A = nn.Parameter(torch.empty(in_features, rank))
+        self.lora_B = nn.Parameter(torch.zeros(rank, out_features))
+        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x @ self.lora_A @ self.lora_B
+
+
+class LoRAResNetClassifier(nn.Module):
+    """Frozen ResNet encoder + LoRA feature-level bypass + fc head.
+
+    Note: This is a simplified LoRA that operates on the final pooled
+    features, not on every linear/conv layer. Much fewer trainable
+    parameters than full fine-tuning.
+    """
+
+    def __init__(self, encoder: nn.Module, feature_dim: int = 512, rank: int = 8):
+        super().__init__()
+        self.encoder = encoder
+        for p in self.encoder.parameters():
+            p.requires_grad = False
+
+        self.lora = LoRALayer(feature_dim, feature_dim, rank=rank)
+        self.fc = nn.Linear(feature_dim, 2)
+
+    def forward(self, x):
+        features = self.encoder(x)          # encoder is frozen via requires_grad
+        adapted = features + self.lora(features)
+        return self.fc(adapted)
+
+
+class VPTMAEClassifier(nn.Module):
+    """Visual Prompt Tuning (shallow) for a frozen MAE ViT encoder.
+
+    Adds `num_prompts` learnable prompt tokens concatenated after the patch
+    and CLS tokens. The ViT backbone is frozen; only prompts + fc are trained.
+    """
+
+    def __init__(self, encoder: nn.Module, num_prompts: int = 10, embed_dim: int = 192):
+        super().__init__()
+        self.encoder = encoder
+        self.num_prompts = num_prompts
+
+        self.prompt_embeddings = nn.Parameter(torch.zeros(1, num_prompts, embed_dim))
+        nn.init.normal_(self.prompt_embeddings, std=0.02)
+
+        self.fc = nn.Linear(embed_dim, 2)
+
+        for p in self.encoder.parameters():
+            p.requires_grad = False
+
+    def forward(self, x):
+        # Patch embedding (frozen)
+        x = self.encoder.patch_embed(x).flatten(2).transpose(1, 2)
+
+        # Prepend CLS and add positional embeddings (frozen)
+        cls_token = self.encoder.cls_token.expand(x.shape[0], -1, -1)
+        x = torch.cat((cls_token, x), dim=1)
+        x = x + self.encoder.pos_embed
+
+        # Append learnable prompts (no positional embedding for prompts)
+        prompts = self.prompt_embeddings.expand(x.shape[0], -1, -1)
+        x = torch.cat((x, prompts), dim=1)
+
+        # Pass through frozen transformer blocks
+        for block in self.encoder.blocks:
+            x = block(x)
+        x = self.encoder.norm(x)
+
+        # Classify using the CLS token
+        return self.fc(x[:, 0])
+
+
+def count_trainable_params(model: nn.Module) -> int:
+    """Helper to count trainable parameters in a model."""
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
