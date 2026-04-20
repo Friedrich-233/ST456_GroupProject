@@ -44,7 +44,7 @@ class TrainConfig:
     patience: int = 3
 
 DEFAULT_EXPERIMENT_CONFIG = TrainConfig()
-MAIN_METHODS = ["supervised_from_scratch", "simclr", "mae", "mae_improved"]
+MAIN_METHODS = ["supervised_from_scratch", "simclr", "mae"]
 FINETUNE_STRATEGIES = ["frozen", "partial", "full"]
 
 from data import (
