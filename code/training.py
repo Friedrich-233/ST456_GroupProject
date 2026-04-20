@@ -234,9 +234,9 @@ def train_simclr(
             loss = nt_xent_loss(zi, zj)
 
             optimizer.zero_grad()
-            loss.backward()
-            scheduler.step()        
+            loss.backward()       
             optimizer.step()
+            scheduler.step() 
             total_loss += loss.item()
 
         avg_loss = total_loss / len(loader)
